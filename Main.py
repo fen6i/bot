@@ -4,12 +4,13 @@ import random, string, time
 from github import Github
 import traceback
 import os
+
 # --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = "fen6i/codes"
 GITHUB_FILE_PATH = "codes.txt"
-CHANNEL_ID = 1345155806559080620  # Replace with your desired channel's ID
+CHANNEL_ID = 1329974562036912200  # Replace with your desired channel's ID
 
 # Cooldown settings (in seconds)
 GET_COOLDOWN_SECONDS   = 20
@@ -102,17 +103,41 @@ async def send_ephemeral(interaction: discord.Interaction, msg: str):
         print("Error in send_ephemeral:", e)
         traceback.print_exc()
 
+def create_embed():
+    """Creates and returns the embed to post."""
+    embed = discord.Embed(
+        title="Manage Premium Code",
+        color=discord.Color.blurple(),
+        description=(
+            "➡️ **Get a Code**: Generate a new single-use code for the Loader.\n\n"
+            "➡️ **View Code**: Retrieve your existing code.\n\n"
+            "➡️ **Reset Code**: Reset your code (after resetting, your old code will no longer be valid)."
+        )
+    )
+    embed.set_footer(text="@fen6i cookin")
+    embed.set_thumbnail(url=IMAGE_URL)
+    return embed
+
 class ManageCodeView(discord.ui.View):
     def __init__(self, timeout: float = 300):
         super().__init__(timeout=timeout)
         self.message = None  # Will store the sent message
 
     async def on_timeout(self):
+        # When the view times out, delete the message and repost a new one.
         if self.message:
             try:
                 await self.message.delete()
             except Exception as e:
                 print("Error deleting message on timeout:", e)
+        # Repost the embed in the same channel.
+        channel = bot.get_channel(CHANNEL_ID)
+        if channel is not None:
+            new_embed = create_embed()
+            new_view = ManageCodeView(timeout=300)
+            msg = await channel.send(embed=new_embed, view=new_view)
+            new_view.message = msg
+            print(f"Reposted embed in channel {channel.name} ({CHANNEL_ID}).")
 
     @discord.ui.button(label="Get a Code", style=discord.ButtonStyle.green, custom_id="get_code")
     async def get_code(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -217,20 +242,23 @@ async def on_ready():
     if channel is None:
         print("Error: Specified channel not found.")
         return
-    embed = discord.Embed(
-        title="Manage Premium Code",
-        color=discord.Color.blurple(),
-        description=(
-            "➡️ **Get a Code**: Generate a new single-use code for the Loader.\n\n"
-            "➡️ **View Code**: Retrieve your existing code.\n\n"
-            "➡️ **Reset Code**: Reset your code (after resetting, your old code will no longer be valid)."
-        )
-    )
-    embed.set_footer(text="@fen6i cookin")
-    embed.set_thumbnail(url=IMAGE_URL)
+    embed = create_embed()
     view = ManageCodeView(timeout=300)
     msg = await channel.send(embed=embed, view=view)
     view.message = msg
     print(f"Embed posted in channel {channel.name} ({CHANNEL_ID}).")
+
+@bot.event
+async def on_message_delete(message):
+    # Check if the deleted message was sent by the bot and contains an embed with our expected title.
+    if message.author == bot.user and message.embeds:
+        embed = message.embeds[0]
+        if embed.title == "Manage Premium Code":
+            channel = message.channel
+            new_embed = create_embed()  # Make sure this function is defined.
+            new_view = ManageCodeView(timeout=300)
+            msg = await channel.send(embed=new_embed, view=new_view)
+            new_view.message = msg
+            print(f"Reposted embed in channel {channel.name} ({channel.id}).")
 
 bot.run(BOT_TOKEN)
