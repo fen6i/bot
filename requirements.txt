@@ -1,2 +1,2 @@
-discord.py==2.3.2
-PyGithub==2.6.1
+discord.py
+PyGithub
