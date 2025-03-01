@@ -8,6 +8,7 @@ import os
 # --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+PORT = os.getenv("PORT")
 GITHUB_REPO = "fen6i/codes"
 GITHUB_FILE_PATH = "codes.txt"
 CHANNEL_ID = 1329974562036912200  # Replace with your desired channel's ID
