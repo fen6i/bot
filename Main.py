@@ -4,11 +4,21 @@ import random, string, time
 from github import Github
 import traceback
 import os
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 3000))
+    app.run(host="0.0.0.0", port=port)
 
 # --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-PORT = os.getenv("PORT")
 GITHUB_REPO = "fen6i/codes"
 GITHUB_FILE_PATH = "codes.txt"
 CHANNEL_ID = 1329974562036912200  # Replace with your desired channel's ID
