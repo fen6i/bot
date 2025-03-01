@@ -21,7 +21,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = "fen6i/codes"
 GITHUB_FILE_PATH = "codes.txt"
-CHANNEL_ID = 1329974562036912200  # Replace with your desired channel's ID
+CHANNEL_ID = 1345155806559080620  # Replace with your desired channel's ID
 
 # Cooldown settings (in seconds)
 GET_COOLDOWN_SECONDS   = 20
