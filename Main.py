@@ -3,7 +3,8 @@ from discord.ext import commands
 import random, string, time
 from github import Github
 import traceback
-import os
+
+# --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = "fen6i/codes"
@@ -17,7 +18,7 @@ RESET_COOLDOWN_SECONDS = 18000  # 5 hours
 
 WARNING_MSG = "\n\nWarning: Sharing this code with anyone will result in an Instant perma ban."
 
-# URL for the logo image.
+# Image URL for the thumbnail.
 IMAGE_URL = "https://cdn.discordapp.com/attachments/1329974562036912200/1345152431079821312/jxlogo.png?ex=67c38253&is=67c230d3&hm=882af3864c7798da95cabc7f84b312236db5a393662effed77aa7d8ce5700947"
 
 intents = discord.Intents.default()
@@ -36,9 +37,9 @@ def generate_random_code():
 
 def get_code_from_github(user_id: int):
     """
-    Retrieves the code associated with the given user_id from the GitHub file.
+    Retrieves the code for the given user_id from GitHub.
     Expected format: "<generated_code> [<user_id>]"
-    Returns the generated code (first token) if found; otherwise, None.
+    Returns the first token (generated code) if found; otherwise, None.
     """
     g = Github(GITHUB_TOKEN)
     repo = g.get_repo(GITHUB_REPO)
@@ -57,8 +58,8 @@ def get_code_from_github(user_id: int):
 def update_github_file(user_id: int, new_code: str):
     """
     Updates the GitHub file with the user's new code.
-    If a line for that user exists, it replaces that line; otherwise, it appends a new line.
-    Each line is stored as: "<generated_code> [<user_id>]"
+    If a line for that user exists, it replaces it; otherwise, appends a new line.
+    Format: "<generated_code> [<user_id>]"
     """
     g = Github(GITHUB_TOKEN)
     repo = g.get_repo(GITHUB_REPO)
@@ -91,7 +92,7 @@ def update_github_file(user_id: int, new_code: str):
         )
 
 async def send_ephemeral(interaction: discord.Interaction, msg: str):
-    """Helper to send an ephemeral message, using followup if needed."""
+    """Helper to send an ephemeral message, using followup if necessary."""
     try:
         if not interaction.response.is_done():
             await interaction.response.send_message(msg, ephemeral=True)
@@ -104,7 +105,7 @@ async def send_ephemeral(interaction: discord.Interaction, msg: str):
 class ManageCodeView(discord.ui.View):
     def __init__(self, timeout: float = 300):
         super().__init__(timeout=timeout)
-        self.message = None
+        self.message = None  # Will store the sent message
 
     async def on_timeout(self):
         if self.message:
@@ -116,13 +117,15 @@ class ManageCodeView(discord.ui.View):
     @discord.ui.button(label="Get a Code", style=discord.ButtonStyle.green, custom_id="get_code")
     async def get_code(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             user_id = interaction.user.id
             now = time.time()
             if user_id in get_cooldowns and now - get_cooldowns[user_id] < GET_COOLDOWN_SECONDS:
                 remaining = GET_COOLDOWN_SECONDS - (now - get_cooldowns[user_id])
                 minutes, seconds = divmod(int(remaining), 60)
                 msg = f"Please wait {minutes} minutes and {seconds} seconds before generating a new code."
-                await send_ephemeral(interaction, msg)
+                await interaction.followup.send(msg, ephemeral=True)
                 return
             get_cooldowns[user_id] = now
 
@@ -138,22 +141,27 @@ class ManageCodeView(discord.ui.View):
                 user_codes[user_id] = new_code
                 update_github_file(user_id, new_code)
                 msg = f"New code generated: **{new_code}**" + WARNING_MSG
-            await send_ephemeral(interaction, msg)
+            await interaction.followup.send(msg, ephemeral=True)
         except Exception as e:
-            await send_ephemeral(interaction, "An error occurred while generating your code.")
+            try:
+                await interaction.followup.send("An error occurred while generating your code.", ephemeral=True)
+            except Exception:
+                pass
             print("Error in get_code:", e)
             traceback.print_exc()
 
     @discord.ui.button(label="View Code", style=discord.ButtonStyle.primary, custom_id="view_code")
     async def view_code(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             user_id = interaction.user.id
             now = time.time()
             if user_id in view_cooldowns and now - view_cooldowns[user_id] < VIEW_COOLDOWN_SECONDS:
                 remaining = VIEW_COOLDOWN_SECONDS - (now - view_cooldowns[user_id])
                 minutes, seconds = divmod(int(remaining), 60)
                 msg = f"Please wait {minutes} minutes and {seconds} seconds before viewing your code again."
-                await send_ephemeral(interaction, msg)
+                await interaction.followup.send(msg, ephemeral=True)
                 return
             view_cooldowns[user_id] = now
 
@@ -163,22 +171,27 @@ class ManageCodeView(discord.ui.View):
                 msg = f"hey, {interaction.user.mention} your code is **{code}**" + WARNING_MSG
             else:
                 msg = "You don't have a code yet. Use **Get a Code** to generate one."
-            await send_ephemeral(interaction, msg)
+            await interaction.followup.send(msg, ephemeral=True)
         except Exception as e:
-            await send_ephemeral(interaction, "An error occurred while retrieving your code.")
+            try:
+                await interaction.followup.send("An error occurred while retrieving your code.", ephemeral=True)
+            except Exception:
+                pass
             print("Error in view_code:", e)
             traceback.print_exc()
 
     @discord.ui.button(label="Reset Code", style=discord.ButtonStyle.danger, custom_id="reset_code")
     async def reset_code(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
             user_id = interaction.user.id
             now = time.time()
             if user_id in reset_cooldowns and now - reset_cooldowns[user_id] < RESET_COOLDOWN_SECONDS:
                 remaining = RESET_COOLDOWN_SECONDS - (now - reset_cooldowns[user_id])
                 minutes, seconds = divmod(int(remaining), 60)
                 msg = f"Please wait {minutes} minutes and {seconds} seconds before resetting your code again."
-                await send_ephemeral(interaction, msg)
+                await interaction.followup.send(msg, ephemeral=True)
                 return
             reset_cooldowns[user_id] = now
             if user_codes.get(user_id) or get_code_from_github(user_id):
@@ -188,9 +201,12 @@ class ManageCodeView(discord.ui.View):
                 msg = f"Your code has been reset: **{new_code}**" + WARNING_MSG
             else:
                 msg = "You don't have a code yet. Use **Get a Code** to generate one."
-            await send_ephemeral(interaction, msg)
+            await interaction.followup.send(msg, ephemeral=True)
         except Exception as e:
-            await send_ephemeral(interaction, "An error occurred while resetting your code.")
+            try:
+                await interaction.followup.send("An error occurred while resetting your code.", ephemeral=True)
+            except Exception:
+                pass
             print("Error in reset_code:", e)
             traceback.print_exc()
 
@@ -211,7 +227,6 @@ async def on_ready():
         )
     )
     embed.set_footer(text="@fen6i cookin")
-    # Add a thumbnail (or you can use set_image for a full-size image)
     embed.set_thumbnail(url=IMAGE_URL)
     view = ManageCodeView(timeout=300)
     msg = await channel.send(embed=embed, view=view)
