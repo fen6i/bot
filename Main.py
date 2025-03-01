@@ -3,7 +3,7 @@ from discord.ext import commands
 import random, string, time
 from github import Github
 import traceback
-
+import os
 # --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
