@@ -4,13 +4,15 @@ import random, string, time
 from github import Github
 import traceback
 import os
+import threading
+from flask import Flask
 
 # --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = "fen6i/codes"
 GITHUB_FILE_PATH = "codes.txt"
-CHANNEL_ID = 1345155806559080620
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "1345155806559080620"))
 
 # Cooldown settings (in seconds)
 GET_COOLDOWN_SECONDS   = 20
@@ -22,6 +24,18 @@ WARNING_MSG = "\n\nWarning: Sharing this code with anyone will result in an Inst
 # Image URL for the thumbnail.
 IMAGE_URL = "https://cdn.discordapp.com/attachments/1329974562036912200/1345152431079821312/jxlogo.png?ex=67c38253&is=67c230d3&hm=882af3864c7798da95cabc7f84b312236db5a393662effed77aa7d8ce5700947"
 
+# --- Flask Setup for a Minimal Web Server ---
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.getenv("PORT", 3000))
+    app.run(host="0.0.0.0", port=port)
+
+# --- Discord Bot Setup ---
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -30,6 +44,9 @@ user_codes = {}
 get_cooldowns = {}
 view_cooldowns = {}
 reset_cooldowns = {}
+
+# Global variable to store the interactive message's ID.
+interactive_msg_id = None
 
 def generate_random_code():
     """Generates a random 16-character alphanumeric code."""
@@ -59,7 +76,7 @@ def get_code_from_github(user_id: int):
 def update_github_file(user_id: int, new_code: str):
     """
     Updates the GitHub file with the user's new code.
-    If a line for that user exists, it replaces it; otherwise, it appends a new line.
+    If a line for that user exists, it replaces it; otherwise, appends a new line.
     Format: "<generated_code> [<user_id>]"
     """
     g = Github(GITHUB_TOKEN)
@@ -86,7 +103,6 @@ def update_github_file(user_id: int, new_code: str):
             file_content.sha
         )
     except Exception as e:
-        # If the file doesn't exist or any error occurs, create it instead.
         repo.create_file(
             GITHUB_FILE_PATH,
             f"Create codes file for user {user_id}",
@@ -120,10 +136,29 @@ def create_embed():
     return embed
 
 class ManageCodeView(discord.ui.View):
-    # No on_timeout method (so the bot won't delete the message or repost it)
-    def __init__(self):
-        super().__init__(timeout=None)  # No timeout
-        self.message = None
+    def __init__(self, timeout: float = 300):
+        super().__init__(timeout=timeout)
+        self.message = None  # Will store the sent message
+
+    async def on_timeout(self):
+        # When the view times out, delete the message and repost a new one.
+        global interactive_msg_id
+        if self.message:
+            try:
+                await self.message.delete()
+            except Exception as e:
+                print("Error deleting message on timeout:", e)
+        # Only repost if the deleted message's ID matches our expected interactive message ID.
+        if self.message and self.message.id == interactive_msg_id:
+            interactive_msg_id = None  # Reset to prevent duplicate reposts
+            channel = bot.get_channel(CHANNEL_ID)
+            if channel is not None:
+                new_embed = create_embed()
+                new_view = ManageCodeView(timeout=300)
+                msg = await channel.send(embed=new_embed, view=new_view)
+                new_view.message = msg
+                interactive_msg_id = msg.id
+                print(f"Reposted embed in channel {channel.name} ({CHANNEL_ID}).")
 
     @discord.ui.button(label="Get a Code", style=discord.ButtonStyle.green, custom_id="get_code")
     async def get_code(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -132,7 +167,6 @@ class ManageCodeView(discord.ui.View):
                 await interaction.response.defer(ephemeral=True)
             user_id = interaction.user.id
             now = time.time()
-            # Cooldown check
             if user_id in get_cooldowns and now - get_cooldowns[user_id] < GET_COOLDOWN_SECONDS:
                 remaining = GET_COOLDOWN_SECONDS - (now - get_cooldowns[user_id])
                 minutes, seconds = divmod(int(remaining), 60)
@@ -224,15 +258,42 @@ class ManageCodeView(discord.ui.View):
 
 @bot.event
 async def on_ready():
+    global interactive_msg_id
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     channel = bot.get_channel(CHANNEL_ID)
     if channel is None:
         print("Error: Specified channel not found.")
         return
     embed = create_embed()
-    view = ManageCodeView()  # No timeout, so it never deletes
+    view = ManageCodeView(timeout=300)
     msg = await channel.send(embed=embed, view=view)
     view.message = msg
+    interactive_msg_id = msg.id
     print(f"Embed posted in channel {channel.name} ({CHANNEL_ID}).")
+
+@bot.event
+async def on_message_delete(message):
+    global interactive_msg_id
+    # Only act if the deleted message is our interactive embed.
+    if message.author == bot.user and message.embeds and message.id == interactive_msg_id:
+        deleter = "Unknown"
+        try:
+            guild = message.guild
+            if guild is not None:
+                async for entry in guild.audit_logs(action=discord.AuditLogAction.message_delete, limit=1):
+                    deleter = entry.user
+                    break
+        except Exception as e:
+            print("Error fetching audit logs:", e)
+        channel = message.channel
+        await channel.send(f"Bot's interactive message was deleted by {deleter.mention if hasattr(deleter, 'mention') else deleter}!")
+        # Repost the embed only once.
+        interactive_msg_id = None
+        new_embed = create_embed()
+        new_view = ManageCodeView(timeout=300)
+        msg = await channel.send(embed=new_embed, view=new_view)
+        new_view.message = msg
+        interactive_msg_id = msg.id
+        print(f"Reposted embed in channel {channel.name} ({CHANNEL_ID}).")
 
 bot.run(BOT_TOKEN)
