@@ -4,24 +4,13 @@ import random, string, time
 from github import Github
 import traceback
 import os
-from flask import Flask
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 3000))
-    app.run(host="0.0.0.0", port=port)
 
 # --- Configuration ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = "fen6i/codes"
 GITHUB_FILE_PATH = "codes.txt"
-CHANNEL_ID = 1345155806559080620  # Replace with your desired channel's ID
+CHANNEL_ID = 1345155806559080620
 
 # Cooldown settings (in seconds)
 GET_COOLDOWN_SECONDS   = 20
@@ -70,7 +59,7 @@ def get_code_from_github(user_id: int):
 def update_github_file(user_id: int, new_code: str):
     """
     Updates the GitHub file with the user's new code.
-    If a line for that user exists, it replaces it; otherwise, appends a new line.
+    If a line for that user exists, it replaces it; otherwise, it appends a new line.
     Format: "<generated_code> [<user_id>]"
     """
     g = Github(GITHUB_TOKEN)
@@ -97,6 +86,7 @@ def update_github_file(user_id: int, new_code: str):
             file_content.sha
         )
     except Exception as e:
+        # If the file doesn't exist or any error occurs, create it instead.
         repo.create_file(
             GITHUB_FILE_PATH,
             f"Create codes file for user {user_id}",
@@ -115,7 +105,7 @@ async def send_ephemeral(interaction: discord.Interaction, msg: str):
         traceback.print_exc()
 
 def create_embed():
-    """Creates and returns the embed to post."""
+    """Creates the embed for the interactive panel."""
     embed = discord.Embed(
         title="Manage Premium Code",
         color=discord.Color.blurple(),
@@ -130,25 +120,10 @@ def create_embed():
     return embed
 
 class ManageCodeView(discord.ui.View):
-    def __init__(self, timeout: float = 300):
-        super().__init__(timeout=timeout)
-        self.message = None  # Will store the sent message
-
-    async def on_timeout(self):
-        # When the view times out, delete the message and repost a new one.
-        if self.message:
-            try:
-                await self.message.delete()
-            except Exception as e:
-                print("Error deleting message on timeout:", e)
-        # Repost the embed in the same channel.
-        channel = bot.get_channel(CHANNEL_ID)
-        if channel is not None:
-            new_embed = create_embed()
-            new_view = ManageCodeView(timeout=300)
-            msg = await channel.send(embed=new_embed, view=new_view)
-            new_view.message = msg
-            print(f"Reposted embed in channel {channel.name} ({CHANNEL_ID}).")
+    # No on_timeout method (so the bot won't delete the message or repost it)
+    def __init__(self):
+        super().__init__(timeout=None)  # No timeout
+        self.message = None
 
     @discord.ui.button(label="Get a Code", style=discord.ButtonStyle.green, custom_id="get_code")
     async def get_code(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -157,6 +132,7 @@ class ManageCodeView(discord.ui.View):
                 await interaction.response.defer(ephemeral=True)
             user_id = interaction.user.id
             now = time.time()
+            # Cooldown check
             if user_id in get_cooldowns and now - get_cooldowns[user_id] < GET_COOLDOWN_SECONDS:
                 remaining = GET_COOLDOWN_SECONDS - (now - get_cooldowns[user_id])
                 minutes, seconds = divmod(int(remaining), 60)
@@ -254,22 +230,9 @@ async def on_ready():
         print("Error: Specified channel not found.")
         return
     embed = create_embed()
-    view = ManageCodeView(timeout=300)
+    view = ManageCodeView()  # No timeout, so it never deletes
     msg = await channel.send(embed=embed, view=view)
     view.message = msg
     print(f"Embed posted in channel {channel.name} ({CHANNEL_ID}).")
-
-@bot.event
-async def on_message_delete(message):
-    # Check if the deleted message was sent by the bot and contains an embed with our expected title.
-    if message.author == bot.user and message.embeds:
-        embed = message.embeds[0]
-        if embed.title == "Manage Premium Code":
-            channel = message.channel
-            new_embed = create_embed()  # Make sure this function is defined.
-            new_view = ManageCodeView(timeout=300)
-            msg = await channel.send(embed=new_embed, view=new_view)
-            new_view.message = msg
-            print(f"Reposted embed in channel {channel.name} ({channel.id}).")
 
 bot.run(BOT_TOKEN)
