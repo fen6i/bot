@@ -35,6 +35,10 @@ def run_flask():
     port = int(os.getenv("PORT", 3000))
     app.run(host="0.0.0.0", port=port)
 
+# Start the Flask server in a separate thread.
+flask_thread = threading.Thread(target=run_flask)
+flask_thread.start()
+
 # --- Discord Bot Setup ---
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -141,16 +145,15 @@ class ManageCodeView(discord.ui.View):
         self.message = None  # Will store the sent message
 
     async def on_timeout(self):
-        # When the view times out, delete the message and repost a new one.
         global interactive_msg_id
+        # Delete the expired message and then repost a new one if it matches our expected interactive message.
         if self.message:
             try:
                 await self.message.delete()
             except Exception as e:
                 print("Error deleting message on timeout:", e)
-        # Only repost if the deleted message's ID matches our expected interactive message ID.
         if self.message and self.message.id == interactive_msg_id:
-            interactive_msg_id = None  # Reset to prevent duplicate reposts
+            interactive_msg_id = None  # Reset the global variable
             channel = bot.get_channel(CHANNEL_ID)
             if channel is not None:
                 new_embed = create_embed()
