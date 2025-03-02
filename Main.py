@@ -1,10 +1,7 @@
 import discord
 from discord.ext import commands
-import random, string, time
+import random, string, time, threading, traceback, os
 from github import Github
-import traceback
-import os
-import threading
 from flask import Flask
 
 # --- Configuration ---
@@ -35,7 +32,7 @@ def run_flask():
     port = int(os.getenv("PORT", 3000))
     app.run(host="0.0.0.0", port=port)
 
-# Start the Flask server in a separate thread.
+# Start Flask in a separate thread.
 flask_thread = threading.Thread(target=run_flask)
 flask_thread.start()
 
@@ -49,9 +46,6 @@ get_cooldowns = {}
 view_cooldowns = {}
 reset_cooldowns = {}
 
-# Global variable to store the interactive message's ID.
-interactive_msg_id = None
-
 def generate_random_code():
     """Generates a random 16-character alphanumeric code."""
     allowed = string.ascii_uppercase + string.digits
@@ -61,7 +55,7 @@ def get_code_from_github(user_id: int):
     """
     Retrieves the code for the given user_id from GitHub.
     Expected format: "<generated_code> [<user_id>]"
-    Returns the first token (generated code) if found; otherwise, None.
+    Returns the generated code (first token) if found; otherwise, None.
     """
     g = Github(GITHUB_TOKEN)
     repo = g.get_repo(GITHUB_REPO)
@@ -140,28 +134,10 @@ def create_embed():
     return embed
 
 class ManageCodeView(discord.ui.View):
-    def __init__(self, timeout: float = 300):
-        super().__init__(timeout=timeout)
+    def __init__(self):
+        # Set timeout=None so it never auto-deletes or reposts
+        super().__init__(timeout=None)
         self.message = None  # Will store the sent message
-
-    async def on_timeout(self):
-        global interactive_msg_id
-        # Delete the expired message and then repost a new one if it matches our expected interactive message.
-        if self.message:
-            try:
-                await self.message.delete()
-            except Exception as e:
-                print("Error deleting message on timeout:", e)
-        if self.message and self.message.id == interactive_msg_id:
-            interactive_msg_id = None  # Reset the global variable
-            channel = bot.get_channel(CHANNEL_ID)
-            if channel is not None:
-                new_embed = create_embed()
-                new_view = ManageCodeView(timeout=300)
-                msg = await channel.send(embed=new_embed, view=new_view)
-                new_view.message = msg
-                interactive_msg_id = msg.id
-                print(f"Reposted embed in channel {channel.name} ({CHANNEL_ID}).")
 
     @discord.ui.button(label="Get a Code", style=discord.ButtonStyle.green, custom_id="get_code")
     async def get_code(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -261,42 +237,15 @@ class ManageCodeView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    global interactive_msg_id
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     channel = bot.get_channel(CHANNEL_ID)
     if channel is None:
         print("Error: Specified channel not found.")
         return
     embed = create_embed()
-    view = ManageCodeView(timeout=300)
+    view = ManageCodeView()
     msg = await channel.send(embed=embed, view=view)
     view.message = msg
-    interactive_msg_id = msg.id
     print(f"Embed posted in channel {channel.name} ({CHANNEL_ID}).")
-
-@bot.event
-async def on_message_delete(message):
-    global interactive_msg_id
-    # Only act if the deleted message is our interactive embed.
-    if message.author == bot.user and message.embeds and message.id == interactive_msg_id:
-        deleter = "Unknown"
-        try:
-            guild = message.guild
-            if guild is not None:
-                async for entry in guild.audit_logs(action=discord.AuditLogAction.message_delete, limit=1):
-                    deleter = entry.user
-                    break
-        except Exception as e:
-            print("Error fetching audit logs:", e)
-        channel = message.channel
-        await channel.send(f"Bot's interactive message was deleted by {deleter.mention if hasattr(deleter, 'mention') else deleter}!")
-        # Repost the embed only once.
-        interactive_msg_id = None
-        new_embed = create_embed()
-        new_view = ManageCodeView(timeout=300)
-        msg = await channel.send(embed=new_embed, view=new_view)
-        new_view.message = msg
-        interactive_msg_id = msg.id
-        print(f"Reposted embed in channel {channel.name} ({CHANNEL_ID}).")
 
 bot.run(BOT_TOKEN)
